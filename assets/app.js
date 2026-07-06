@@ -92,6 +92,10 @@ async function loadProgress(){
   App.learnedCustom = new Set(lc?JSON.parse(lc):[]);
   if(st){ try{ App.stats=JSON.parse(st); }catch(e){} }
   if(eh){ try{ App.examHistory=JSON.parse(eh); }catch(e){} }
+  const ds=Local.get('deckSeed'), dp=Local.get('deckPos');
+  if(ds){ const n=parseInt(ds,10); if(n) deck.seed=n; }
+  if(dp) deck.currentId=dp;
+  loadPractice();
 }
 let saveT;
 function saveProgress(){
@@ -183,8 +187,21 @@ function applyDesign(name, save=true){
    ===================================================================== */
 const TYPE_LABEL={multichoice:'Выбор',truefalse:'Верно/Неверно',match:'Соответствие',numerical:'Число',shortanswer:'Ответ словом'};
 
-// answer store для практики: {id:{picked,done,correct}}
+// answer store для практики: {id:{picked,done,correct,order,...}}
 const practice = {};
+let practiceT;
+function savePractice(){
+  clearTimeout(practiceT);
+  practiceT=setTimeout(()=>{
+    // храним только разобранные вопросы (done), чтобы не раздувать хранилище
+    const slim={};
+    for(const id in practice){ if(practice[id] && practice[id].done) slim[id]=practice[id]; }
+    Local.set('practice', JSON.stringify(slim));
+  }, 500);
+}
+function loadPractice(){
+  try{ const raw=Local.get('practice'); if(raw){ const obj=JSON.parse(raw); for(const id in obj) practice[id]=obj[id]; } }catch(e){}
+}
 
 function buildOptions(q){
   // возвращает перемешанный список опций (для choice/truefalse)
@@ -351,6 +368,7 @@ function afterPractice(q, ok, body, btn){
   if(btn) btn.remove();
   // учёт статистики единожды
   if(!practice[q.id]._counted){ practice[q.id]._counted=true; App.stats.answered++; if(ok) App.stats.correct++; if(ok) setLearned(q,true); saveProgress(); }
+  savePractice();  // сохраняем разобранный вопрос (ответ виден и при следующем запуске)
   const box=document.createElement('div'); box.className='reveal-box';
   const ansText = q.answerText || (q.type==='match'? Object.entries(q.pairs).map(([k,v])=>`${k} → ${v}`).join('  ·  ') : (q.correct?q.correct.join(', '):q.answer));
   const tip = App.tips[q.id];
@@ -367,18 +385,33 @@ function afterPractice(q, ok, body, btn){
 /* =====================================================================
    ALL QUESTIONS DECK
    ===================================================================== */
-const deck = { list:[], pos:0, type:'all', status:'all', query:'' };
+const deck = { list:[], pos:0, type:'all', status:'all', query:'', seed:0, currentId:null };
 
-function rebuildDeck(reshuffle=true){
-  let list=App.questions.filter(q=>{
+/* Детерминированный порядок по seed — храним один seed вместо 822 id (влезает в CloudStorage) */
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+function seededShuffle(arr, seed){ const r=mulberry32(seed); arr=[...arr]; for(let i=arr.length-1;i>0;i--){ const j=Math.floor(r()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
+function orderedQuestions(){
+  if(!deck.seed){ deck.seed=Math.floor(Math.random()*2e9)+1; saveDeckMeta(); }
+  return interleave(seededShuffle(App.questions, deck.seed));
+}
+// позиция/порядок — сразу в localStorage (мгновенно, без потери при быстром закрытии)
+function saveDeckMeta(){ Local.set('deckSeed', String(deck.seed)); Local.set('deckPos', deck.currentId||''); }
+
+// reshuffle=true — только по кнопке 🔀: новый порядок + старт сначала.
+// reshuffle=false — стабильный порядок, позиция восстанавливается (продолжаем где остановились).
+function rebuildDeck(reshuffle=false){
+  if(reshuffle){ deck.seed=Math.floor(Math.random()*2e9)+1; deck.currentId=null; saveDeckMeta(); }
+  const ordered=orderedQuestions();
+  const list=ordered.filter(q=>{
     if(deck.type!=='all' && q.type!==deck.type) return false;
     if(deck.status==='learned' && !isLearned(q)) return false;
     if(deck.status==='new' && isLearned(q)) return false;
     if(deck.query){ if(!(q.q.toLowerCase().includes(deck.query) || (q.answerText||'').toLowerCase().includes(deck.query))) return false; }
     return true;
   });
-  if(reshuffle) list=interleave(shuffle(list));
-  deck.list=list; deck.pos=0;
+  deck.list=list;
+  const idx = deck.currentId ? list.findIndex(q=>q.id===deck.currentId) : -1;
+  deck.pos = idx>=0 ? idx : 0;
   renderDeck();
 }
 // лёгкое чередование типов, чтобы не шли подряд одинаковые
@@ -396,6 +429,7 @@ function renderDeck(){
     $('#deckCounter').textContent='0 / 0'; $('#deckProgressBar').style.width='0%'; $('#prevBtn').disabled=$('#nextBtn').disabled=true; $('#learnBtn').style.visibility='hidden'; return; }
   $('#learnBtn').style.visibility='visible';
   const q=deck.list[deck.pos];
+  deck.currentId=q.id; saveDeckMeta();   // запоминаем, где остановился
   practice[q.id]=practice[q.id]||{};
   renderCard(q, host, 'practice', practice[q.id]);
   $('#deckCounter').textContent=`${deck.pos+1} / ${deck.list.length}`;
@@ -734,7 +768,7 @@ function deleteQuestion(id){
 }
 let _baseQs=[];
 function getBaseQs(){ return _baseQs; }
-function postDataChange(){ rebuildDeck(true); renderProfile(); }
+function postDataChange(){ rebuildDeck(false); renderProfile(); }
 
 function renderAdminData(host){
   host.innerHTML=`
@@ -814,12 +848,12 @@ function wire(){
 
   // search
   const si=$('#searchInput');
-  let sT; si.addEventListener('input',()=>{ $('#searchClear').classList.toggle('hidden',!si.value); clearTimeout(sT); sT=setTimeout(()=>{ deck.query=si.value.trim().toLowerCase(); rebuildDeck(true); },250); });
-  $('#searchClear').onclick=()=>{ si.value=''; $('#searchClear').classList.add('hidden'); deck.query=''; rebuildDeck(true); };
+  let sT; si.addEventListener('input',()=>{ $('#searchClear').classList.toggle('hidden',!si.value); clearTimeout(sT); sT=setTimeout(()=>{ deck.query=si.value.trim().toLowerCase(); rebuildDeck(false); },250); });
+  $('#searchClear').onclick=()=>{ si.value=''; $('#searchClear').classList.add('hidden'); deck.query=''; rebuildDeck(false); };
 
   // filter sheet
   $('#filterBtn').onclick=()=>$('#filterSheet').classList.toggle('hidden');
-  $('#applyFilter').onclick=()=>{ $('#filterSheet').classList.add('hidden'); updateFilterLabel(); rebuildDeck(true); };
+  $('#applyFilter').onclick=()=>{ $('#filterSheet').classList.add('hidden'); updateFilterLabel(); rebuildDeck(false); };
   $('#shuffleBtn').onclick=()=>{ rebuildDeck(true); toast('Перемешано 🔀'); };
 
   // exam
@@ -829,7 +863,7 @@ function wire(){
   $('#finishExamBtn').onclick=()=>finishExam(false);
 
   // profile
-  $('#resetBtn').onclick=()=>{ if(confirm('Сбросить весь прогресс (выученное, статистику, экзамены)?')){ App.learnedBase.clear(); App.learnedCustom.clear(); App.stats={answered:0,correct:0}; App.examHistory=[]; saveProgress(); saveExams(); for(const k in practice) delete practice[k]; renderProfile(); rebuildDeck(false); renderExamHistory(); toast('Прогресс сброшен'); } };
+  $('#resetBtn').onclick=()=>{ if(confirm('Сбросить весь прогресс (выученное, статистику, экзамены, позицию в вопросах)?')){ App.learnedBase.clear(); App.learnedCustom.clear(); App.stats={answered:0,correct:0}; App.examHistory=[]; saveProgress(); saveExams(); for(const k in practice) delete practice[k]; Local.set('practice','{}'); deck.currentId=null; deck.pos=0; saveDeckMeta(); renderProfile(); rebuildDeck(false); renderExamHistory(); toast('Прогресс сброшен'); } };
   $('#verTag').parentElement.addEventListener('click',versionTap);
   $('#adminOpenBtn').onclick=openAdmin;
 
@@ -871,7 +905,7 @@ async function boot(){
   detectAdmin();
   buildTypeChips(); updateFilterLabel();
   wire();
-  rebuildDeck(true);
+  rebuildDeck(false);   // стабильный порядок + продолжаем с сохранённой позиции
   renderProfile();
   // синхронизация выбранного дизайна между устройствами (CloudStorage)
   Store.get('design').then(d=>{ if(d && DESIGN_IDS.includes(d) && d!==currentDesign()) applyDesign(d); });
