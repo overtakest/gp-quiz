@@ -451,3 +451,9 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .dp-name{font-weight:700;font-size:15px}
 .dp-desc{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
 @media(min-width:760px){.dp-grid{grid-template-columns:repeat(3,1fr)}.dp-card:hover{border-color:var(--primary)}}
+
+/* ===== clickable exam history (added) ===== */
+.hist-row.clickable{cursor:pointer;transition:transform .12s,border-color .2s;border:1.5px solid transparent}
+.hist-row.clickable:active{transform:scale(.99)}
+.hist-row.clickable:hover{border-color:var(--primary)}
+.hist-more{color:var(--primary);font-weight:800;margin-left:2px}

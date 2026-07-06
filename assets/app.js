@@ -212,6 +212,7 @@ function flushSaves(){
     const slim={}; for(const id in practice){ if(practice[id] && practice[id].done) slim[id]=practice[id]; }
     Local.set('practice', JSON.stringify(slim));
     saveDeckMeta();
+    if(exam.running) saveExamRun();
   }catch(e){}
 }
 
@@ -482,9 +483,33 @@ function startExam(){
   exam.list = interleave(shuffle(pool)).slice(0, Math.min(EX_COUNT, App.questions.length));
   exam.pos=0; exam.answers={}; exam.state={}; exam.answered={};
   exam.left=EX_SECONDS; exam.running=true;
+  exam.endTs=Date.now()+EX_SECONDS*1000;
   $('#examIntro').classList.add('hidden'); $('#examResult').classList.add('hidden'); $('#examRun').classList.remove('hidden');
-  buildDots(); renderExamCard(); tickStart();
+  buildDots(); renderExamCard(); tickStart(); saveExamRun();
   haptic();
+}
+
+/* ---- сохранение незавершённой попытки: случайный выход не убивает экзамен ---- */
+function saveExamRun(){
+  if(!exam.running) return;
+  try{ Local.set('examRun', JSON.stringify({ ids:exam.list.map(q=>q.id), state:exam.state, answered:exam.answered, pos:exam.pos, endTs:exam.endTs })); }catch(e){}
+}
+function tryResumeExam(){
+  let run; try{ run=JSON.parse(Local.get('examRun')||'null'); }catch(e){}
+  if(!run || !run.ids || !run.ids.length) return false;
+  const qs=run.ids.map(id=>App.byId[id]).filter(Boolean);
+  if(qs.length<2){ Local.del('examRun'); return false; }
+  exam.list=qs; exam.state=run.state||{}; exam.answered=run.answered||{};
+  exam.pos=Math.min(run.pos||0, qs.length-1);
+  exam.endTs=run.endTs||Date.now();
+  exam.left=Math.max(0, Math.floor((exam.endTs-Date.now())/1000));
+  exam.running=true;
+  $('#examIntro').classList.add('hidden'); $('#examResult').classList.add('hidden');
+  if(exam.left<=0){ finishExam(true); toast('Время вышло — вот результат ⏱'); return true; }
+  $('#examRun').classList.remove('hidden');
+  buildDots(); renderExamCard(); tickStart();
+  toast('Экзамен продолжен ⏱');
+  return true;
 }
 function tickStart(){
   clearInterval(exam.timer); updateTimer();
@@ -504,7 +529,7 @@ function buildDots(){
 function updateDots(){
   $$('#examDots .edot').forEach((d,i)=>{ d.classList.toggle('answered', !!exam.answered[exam.list[i].id]); d.classList.toggle('current', i===exam.pos); });
 }
-function markExamAnswered(id, yes){ exam.answered[id]=yes; updateDots(); }
+function markExamAnswered(id, yes){ exam.answered[id]=yes; updateDots(); saveExamRun(); }
 function renderExamCard(){
   const q=exam.list[exam.pos];
   exam.state[q.id]=exam.state[q.id]||{};
@@ -514,7 +539,7 @@ function renderExamCard(){
   $('#examPrev').disabled=exam.pos===0; $('#examNext').disabled=exam.pos===exam.list.length-1;
   updateDots();
 }
-function examGo(dir){ const np=exam.pos+dir; if(np<0||np>=exam.list.length) return; exam.pos=np; renderExamCard(); const c=$('.qcard',$('#examCardHost')); if(c) c.classList.add(dir>0?'swap-left':'swap-right'); }
+function examGo(dir){ const np=exam.pos+dir; if(np<0||np>=exam.list.length) return; exam.pos=np; renderExamCard(); saveExamRun(); const c=$('.qcard',$('#examCardHost')); if(c) c.classList.add(dir>0?'swap-left':'swap-right'); }
 
 function evalExamQuestion(q, st){
   if(!st||st.picked==null || (Array.isArray(st.picked)&&!st.picked.length) || (typeof st.picked==='string'&&!st.picked.trim())){
@@ -533,21 +558,45 @@ function evalExamQuestion(q, st){
 function finishExam(auto){
   if(!exam.running) return;
   if(!auto){ const un=exam.list.filter(q=>!exam.answered[q.id]).length; if(un>0 && !confirm(`Осталось без ответа: ${un}. Завершить экзамен?`)) return; }
-  exam.running=false; clearInterval(exam.timer);
-  let correct=0; const review=[];
-  exam.list.forEach(q=>{ const r=evalExamQuestion(q, exam.state[q.id]); if(r.ok) correct++; review.push({q, r, st:exam.state[q.id]});
+  exam.running=false; clearInterval(exam.timer); Local.del('examRun');
+  let correct=0; const items=[];
+  exam.list.forEach(q=>{ const r=evalExamQuestion(q, exam.state[q.id]); if(r.ok) correct++;
+    items.push({q, ok:!!r.ok, empty:!!r.empty, ua:describeAnswer(q, exam.state[q.id])});
     App.stats.answered++; if(r.ok){ App.stats.correct++; setLearned(q,true); } });
   saveProgress();
   const total=exam.list.length; const pct=Math.round(correct/total*100); const passed=correct/total>=EX_PASS;
   const timeUsed=EX_SECONDS-exam.left;
-  App.examHistory.unshift({ score:pct, correct, total, timeUsed, ts:Date.now() });
+  const ts=Date.now();
+  App.examHistory.unshift({ score:pct, correct, total, timeUsed, ts });
   App.examHistory=App.examHistory.slice(0,10); saveExams();
-  renderExamResult({correct,total,pct,passed,timeUsed,review});
+  saveExamDetail(ts, items.map(it=>({id:it.q.id, ok:it.ok?1:0, e:it.empty?1:0, ua:it.ua})));
+  renderExamResult({correct,total,pct,passed,timeUsed,items});
   haptic(passed?'ok':'err');
 }
 
+/* ---- разбор прошлых попыток: детали хранятся локально, история кликабельна ---- */
+function saveExamDetail(ts, detail){
+  try{
+    const all=JSON.parse(Local.get('examDetails')||'{}');
+    all[String(ts)]=detail;
+    const keep=new Set(App.examHistory.map(h=>String(h.ts)));
+    for(const k in all){ if(!keep.has(k)) delete all[k]; }
+    Local.set('examDetails', JSON.stringify(all));
+  }catch(e){}
+}
+function getExamDetail(ts){
+  try{ return JSON.parse(Local.get('examDetails')||'{}')[String(ts)]||null; }catch(e){ return null; }
+}
+function openStoredReview(h){
+  const detail=getExamDetail(h.ts); if(!detail) return;
+  const items=detail.map(d=>({q:App.byId[d.id], ok:!!d.ok, empty:!!d.e, ua:d.ua||''})).filter(it=>it.q);
+  if(!items.length) return;
+  $('#examIntro').classList.add('hidden');
+  renderExamResult({correct:h.correct, total:h.total, pct:h.score, passed:h.correct/h.total>=EX_PASS, timeUsed:h.timeUsed, items});
+}
+
 function fmtTime(s){ const m=Math.floor(s/60); return `${m}:${String(s%60).padStart(2,'0')}`; }
-function renderExamResult({correct,total,pct,passed,timeUsed,review}){
+function renderExamResult({correct,total,pct,passed,timeUsed,items}){
   $('#examRun').classList.add('hidden');
   const host=$('#examResult'); host.classList.remove('hidden');
   let html=`<div class="result-hero ${passed?'pass':'fail'}">
@@ -560,15 +609,14 @@ function renderExamResult({correct,total,pct,passed,timeUsed,review}){
       <button class="btn ghost" id="examBack">К началу</button>
     </div>
     <h4 style="color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.5px;margin:0 0 10px">Разбор</h4>`;
-  review.forEach(({q,r,st},i)=>{
-    const yourAns = describeAnswer(q, st);
+  items.forEach(({q,ok,empty,ua},i)=>{
     const rightAns = q.answerText || (q.type==='match'? Object.entries(q.pairs).map(([k,v])=>`${k} → ${v}`).join(', ') : (q.correct?q.correct.join(', '):q.answer));
     const tip=App.tips[q.id];
-    html+=`<div class="review-item ${r.ok?'ok':'no'}">
+    html+=`<div class="review-item ${ok?'ok':'no'}">
       <div class="review-q">${i+1}. ${esc(q.q)}</div>
-      <div class="review-a">${ r.ok? `<span class="good">✓ ${esc(rightAns)}</span>` :
-         `${r.empty?'<i>нет ответа</i>':`<span class="bad">${esc(yourAns)}</span>`} &nbsp;→&nbsp; <span class="good">${esc(rightAns)}</span>` }</div>
-      ${ (!r.ok && tip)? `<div class="tips" style="margin-top:8px"><div class="tips-title">💡 Tips</div>${esc(tip)}</div>`:'' }
+      <div class="review-a">${ ok? `<span class="good">✓ ${esc(rightAns)}</span>` :
+         `${empty?'<i>нет ответа</i>':`<span class="bad">${esc(ua)}</span>`} &nbsp;→&nbsp; <span class="good">${esc(rightAns)}</span>` }</div>
+      ${ (!ok && tip)? `<div class="tips" style="margin-top:8px"><div class="tips-title">💡 Tips</div>${esc(tip)}</div>`:'' }
     </div>`;
   });
   host.innerHTML=html;
@@ -585,12 +633,19 @@ function describeAnswer(q, st){
 function renderExamHistory(){
   const host=$('#examHistoryHost');
   if(!App.examHistory.length){ host.innerHTML=''; return; }
-  let html='<h4>История экзаменов</h4>';
-  App.examHistory.forEach(h=>{
+  let html='<h4>История экзаменов · нажми — разбор</h4>';
+  App.examHistory.forEach((h,i)=>{
     const passed=h.correct/h.total>=EX_PASS;
-    html+=`<div class="hist-row"><span>${h.correct}/${h.total} · ⏱ ${fmtTime(h.timeUsed)}</span><span class="hist-score ${passed?'pass':'fail'}">${h.score}%</span></div>`;
+    const hasDetail=!!getExamDetail(h.ts);
+    html+=`<div class="hist-row${hasDetail?' clickable':''}" data-i="${i}" ${hasDetail?'role="button"':''}>
+      <span>${h.correct}/${h.total} · ⏱ ${fmtTime(h.timeUsed)}${hasDetail?' <span class="hist-more">›</span>':''}</span>
+      <span class="hist-score ${passed?'pass':'fail'}">${h.score}%</span></div>`;
   });
   host.innerHTML=html;
+  host.onclick=e=>{
+    const row=e.target.closest('.hist-row.clickable'); if(!row) return;
+    const h=App.examHistory[+row.dataset.i]; if(h) { openStoredReview(h); haptic(); }
+  };
 }
 
 /* =====================================================================
@@ -813,7 +868,7 @@ function switchView(v){
   $$('.tab').forEach(t=>t.classList.toggle('active',t.dataset.view===v));
   $('#topbarTitle').textContent=VIEW_TITLE[v];
   if(v==='profile') renderProfile();
-  if(v==='exam' && !exam.running){ renderExamHistory(); }
+  if(v==='exam' && !exam.running){ if(!tryResumeExam()) renderExamHistory(); }
   haptic();
 }
 
@@ -865,7 +920,7 @@ function wire(){
   $('#finishExamBtn').onclick=()=>finishExam(false);
 
   // profile
-  $('#resetBtn').onclick=()=>{ if(confirm('Сбросить весь прогресс (выученное, статистику, экзамены, позицию в вопросах)?')){ App.learnedBase.clear(); App.learnedCustom.clear(); App.stats={answered:0,correct:0}; App.examHistory=[]; saveProgress(); saveExams(); for(const k in practice) delete practice[k]; Local.set('practice','{}'); deck.currentId=null; deck.pos=0; saveDeckMeta(); renderProfile(); rebuildDeck(false); renderExamHistory(); toast('Прогресс сброшен'); } };
+  $('#resetBtn').onclick=()=>{ if(confirm('Сбросить весь прогресс (выученное, статистику, экзамены, позицию в вопросах)?')){ App.learnedBase.clear(); App.learnedCustom.clear(); App.stats={answered:0,correct:0}; App.examHistory=[]; saveProgress(); saveExams(); Local.set('examDetails','{}'); Local.del('examRun'); for(const k in practice) delete practice[k]; Local.set('practice','{}'); deck.currentId=null; deck.pos=0; saveDeckMeta(); renderProfile(); rebuildDeck(false); renderExamHistory(); toast('Прогресс сброшен'); } };
   $('#adminOpenBtn').onclick=openAdmin;
 
   // admin modal
