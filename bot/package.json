@@ -1,0 +1,10 @@
+{
+  "name": "gp-quiz-bot",
+  "version": "1.0.0",
+  "description": "Настройка Telegram Mini App для тестов по гигиене питания",
+  "private": true,
+  "scripts": {
+    "setup": "node setup-bot.js"
+  },
+  "engines": { "node": ">=18" }
+}
