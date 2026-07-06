@@ -841,6 +841,15 @@ async function boot(){
     $('#splashSub').textContent='Ошибка загрузки базы 😔';
     console.error(err); return;
   }
+  // Быстрая синхронизация прогресса в чат бота (кнопка «Профиль» → sendData → закрытие)
+  const params = new URLSearchParams(location.search);
+  if(params.get('sync')==='1' && TG && TG.sendData){
+    const total=App.questions.length, learned=learnedCount();
+    const acc=App.stats.answered?Math.round(App.stats.correct/App.stats.answered*100):0;
+    const best=App.examHistory.length?Math.max(...App.examHistory.map(h=>h.score)):null;
+    try{ TG.sendData(JSON.stringify({t:'progress',learned,total,acc,exams:App.examHistory.length,best})); }catch(e){}
+    return; // Telegram закроет приложение после sendData
+  }
   detectAdmin();
   buildTypeChips(); updateFilterLabel();
   wire();
@@ -848,6 +857,11 @@ async function boot(){
   renderProfile();
   // синхронизация выбранного дизайна между устройствами (CloudStorage)
   Store.get('design').then(d=>{ if(d && DESIGN_IDS.includes(d) && d!==currentDesign()) applyDesign(d); });
+  // deep-link на вкладку: ?tab=exam|profile|all  или  start_param
+  let startTab = params.get('tab');
+  const sp0 = TG && TG.initDataUnsafe && TG.initDataUnsafe.start_param;
+  if(sp0 && ['all','exam','profile'].includes(sp0)) startTab = sp0;
+  if(['exam','profile'].includes(startTab)) switchView(startTab);
   // hide splash
   const sp=$('#splash'); sp.classList.add('fade'); setTimeout(()=>sp.classList.add('hidden'),500);
   $('#app').classList.remove('hidden');
