@@ -40,6 +40,10 @@ const Store = {
       if (this.cloud){ TG.CloudStorage.setItem(key,val,()=>res()); }
       else { try{ localStorage.setItem('gpq_'+key,val); }catch(e){} res(); }
     });
+  },
+  remove(key){
+    if (this.cloud){ try{ TG.CloudStorage.removeItem(key,()=>{}); }catch(e){} }
+    else { try{ localStorage.removeItem('gpq_'+key); }catch(e){} }
   }
 };
 // local-only (мгновенно): тема + админ-оверрайды
@@ -568,29 +572,33 @@ function finishExam(auto){
   const timeUsed=EX_SECONDS-exam.left;
   const ts=Date.now();
   App.examHistory.unshift({ score:pct, correct, total, timeUsed, ts });
+  const dropped=App.examHistory.slice(10);          // попытки, вытесненные из истории (>10)
   App.examHistory=App.examHistory.slice(0,10); saveExams();
-  saveExamDetail(ts, items.map(it=>({id:it.q.id, ok:it.ok?1:0, e:it.empty?1:0, ua:it.ua})));
+  dropped.forEach(h=>{ Local.del('exd'+h.ts); Store.remove('exd'+h.ts); });
+  // компактный разбор: свой ответ храним только для неверных (экономия места в CloudStorage)
+  saveExamDetail(ts, items.map(it=>{ const d={id:it.q.id, ok:it.ok?1:0, e:it.empty?1:0}; if(!it.ok && !it.empty) d.ua=String(it.ua).slice(0,90); return d; }));
   renderExamResult({correct,total,pct,passed,timeUsed,items});
   haptic(passed?'ok':'err');
 }
 
-/* ---- разбор прошлых попыток: детали хранятся локально, история кликабельна ---- */
+/* ---- разбор попыток: CloudStorage (синхронизация между устройствами) + локальное зеркало ---- */
 function saveExamDetail(ts, detail){
-  try{
-    const all=JSON.parse(Local.get('examDetails')||'{}');
-    all[String(ts)]=detail;
-    const keep=new Set(App.examHistory.map(h=>String(h.ts)));
-    for(const k in all){ if(!keep.has(k)) delete all[k]; }
-    Local.set('examDetails', JSON.stringify(all));
-  }catch(e){}
+  const json=JSON.stringify(detail);
+  Local.set('exd'+ts, json);   // мгновенно на устройстве
+  Store.set('exd'+ts, json);   // в облако Telegram
 }
-function getExamDetail(ts){
-  try{ return JSON.parse(Local.get('examDetails')||'{}')[String(ts)]||null; }catch(e){ return null; }
+async function getExamDetail(ts){
+  const local=Local.get('exd'+ts);
+  if(local){ try{ return JSON.parse(local); }catch(e){} }
+  const cloud=await Store.get('exd'+ts);
+  if(cloud){ try{ const d=JSON.parse(cloud); Local.set('exd'+ts, cloud); return d; }catch(e){} }
+  return null;
 }
-function openStoredReview(h){
-  const detail=getExamDetail(h.ts); if(!detail) return;
+async function openStoredReview(h){
+  const detail=await getExamDetail(h.ts);
+  if(!detail || !detail.length){ toast('Разбор этой попытки не сохранён (сдана до обновления)'); return; }
   const items=detail.map(d=>({q:App.byId[d.id], ok:!!d.ok, empty:!!d.e, ua:d.ua||''})).filter(it=>it.q);
-  if(!items.length) return;
+  if(!items.length){ toast('Разбор недоступен'); return; }
   $('#examIntro').classList.add('hidden');
   renderExamResult({correct:h.correct, total:h.total, pct:h.score, passed:h.correct/h.total>=EX_PASS, timeUsed:h.timeUsed, items});
 }
@@ -636,9 +644,8 @@ function renderExamHistory(){
   let html='<h4>История экзаменов · нажми — разбор</h4>';
   App.examHistory.forEach((h,i)=>{
     const passed=h.correct/h.total>=EX_PASS;
-    const hasDetail=!!getExamDetail(h.ts);
-    html+=`<div class="hist-row${hasDetail?' clickable':''}" data-i="${i}" ${hasDetail?'role="button"':''}>
-      <span>${h.correct}/${h.total} · ⏱ ${fmtTime(h.timeUsed)}${hasDetail?' <span class="hist-more">›</span>':''}</span>
+    html+=`<div class="hist-row clickable" data-i="${i}" role="button">
+      <span>${h.correct}/${h.total} · ⏱ ${fmtTime(h.timeUsed)} <span class="hist-more">›</span></span>
       <span class="hist-score ${passed?'pass':'fail'}">${h.score}%</span></div>`;
   });
   host.innerHTML=html;
@@ -920,7 +927,7 @@ function wire(){
   $('#finishExamBtn').onclick=()=>finishExam(false);
 
   // profile
-  $('#resetBtn').onclick=()=>{ if(confirm('Сбросить весь прогресс (выученное, статистику, экзамены, позицию в вопросах)?')){ App.learnedBase.clear(); App.learnedCustom.clear(); App.stats={answered:0,correct:0}; App.examHistory=[]; saveProgress(); saveExams(); Local.set('examDetails','{}'); Local.del('examRun'); for(const k in practice) delete practice[k]; Local.set('practice','{}'); deck.currentId=null; deck.pos=0; saveDeckMeta(); renderProfile(); rebuildDeck(false); renderExamHistory(); toast('Прогресс сброшен'); } };
+  $('#resetBtn').onclick=()=>{ if(confirm('Сбросить весь прогресс (выученное, статистику, экзамены, позицию в вопросах)?')){ App.learnedBase.clear(); App.learnedCustom.clear(); App.stats={answered:0,correct:0}; App.examHistory.forEach(h=>{ Local.del('exd'+h.ts); Store.remove('exd'+h.ts); }); App.examHistory=[]; saveProgress(); saveExams(); Local.del('examRun'); for(const k in practice) delete practice[k]; Local.set('practice','{}'); deck.currentId=null; deck.pos=0; saveDeckMeta(); renderProfile(); rebuildDeck(false); renderExamHistory(); toast('Прогресс сброшен'); } };
   $('#adminOpenBtn').onclick=openAdmin;
 
   // admin modal
