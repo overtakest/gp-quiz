@@ -202,6 +202,18 @@ function savePractice(){
 function loadPractice(){
   try{ const raw=Local.get('practice'); if(raw){ const obj=JSON.parse(raw); for(const id in obj) practice[id]=obj[id]; } }catch(e){}
 }
+// принудительно сохранить всё при закрытии/сворачивании приложения (без потери последнего ответа)
+function flushSaves(){
+  try{
+    clearTimeout(saveT); clearTimeout(practiceT);
+    Store.set('learnedB', bitsetToB64(App.learnedBase));
+    Store.set('learnedC', JSON.stringify([...App.learnedCustom]));
+    Store.set('stats', JSON.stringify(App.stats));
+    const slim={}; for(const id in practice){ if(practice[id] && practice[id].done) slim[id]=practice[id]; }
+    Local.set('practice', JSON.stringify(slim));
+    saveDeckMeta();
+  }catch(e){}
+}
 
 function buildOptions(q){
   // возвращает перемешанный список опций (для choice/truefalse)
@@ -878,6 +890,10 @@ function wire(){
     if(currentView==='all'){ if(e.key==='ArrowRight') deckGo(1); if(e.key==='ArrowLeft') deckGo(-1); if(e.key.toLowerCase()==='l'||e.key.toLowerCase()==='в') toggleLearn(); }
     if(currentView==='exam'&&exam.running){ if(e.key==='ArrowRight') examGo(1); if(e.key==='ArrowLeft') examGo(-1); }
   });
+
+  // сохранить прогресс при закрытии/сворачивании
+  document.addEventListener('visibilitychange', ()=>{ if(document.hidden) flushSaves(); });
+  window.addEventListener('pagehide', flushSaves);
 }
 
 /* =====================================================================
