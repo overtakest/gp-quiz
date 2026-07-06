@@ -643,19 +643,9 @@ function renderProfile(){
    ADMIN PANEL
    ===================================================================== */
 function detectAdmin(){
-  const u = TG && TG.initDataUnsafe && TG.initDataUnsafe.user;
-  const byId = u && (CFG.adminIds||[]).includes(u.id);
-  const byUnlock = Local.get('adminUnlock')==='1';
-  App.isAdmin = !!(byId || byUnlock);
-}
-let verTaps=0, verTapT;
-function versionTap(){
-  verTaps++; clearTimeout(verTapT); verTapT=setTimeout(()=>verTaps=0,1500);
-  if(verTaps>=7){ verTaps=0;
-    if(App.isAdmin && Local.get('adminUnlock')==='1'){ Local.del('adminUnlock'); App.isAdmin=(CFG.adminIds||[]).includes(TG&&TG.initDataUnsafe&&TG.initDataUnsafe.user&&TG.initDataUnsafe.user.id); toast('Админ-режим выключен'); }
-    else { Local.set('adminUnlock','1'); App.isAdmin=true; toast('🛠 Админ-режим включён'); }
-    renderProfile();
-  }
+  Local.del('adminUnlock'); // чистим старый небезопасный флаг 7-нажатий
+  const u = tgUser();
+  App.isAdmin = !!(u && (CFG.adminIds||[]).includes(u.id));
 }
 function openAdmin(){ $('#adminModal').classList.remove('hidden'); adminTab('dash'); }
 function closeAdmin(){ $('#adminModal').classList.add('hidden'); }
@@ -876,7 +866,6 @@ function wire(){
 
   // profile
   $('#resetBtn').onclick=()=>{ if(confirm('Сбросить весь прогресс (выученное, статистику, экзамены, позицию в вопросах)?')){ App.learnedBase.clear(); App.learnedCustom.clear(); App.stats={answered:0,correct:0}; App.examHistory=[]; saveProgress(); saveExams(); for(const k in practice) delete practice[k]; Local.set('practice','{}'); deck.currentId=null; deck.pos=0; saveDeckMeta(); renderProfile(); rebuildDeck(false); renderExamHistory(); toast('Прогресс сброшен'); } };
-  $('#verTag').parentElement.addEventListener('click',versionTap);
   $('#adminOpenBtn').onclick=openAdmin;
 
   // admin modal
