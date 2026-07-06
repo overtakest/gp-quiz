@@ -133,8 +133,16 @@ function applyOverrides(baseQs){
 function saveOverrides(){ Local.set('overrides', JSON.stringify(App.overrides)); }
 
 /* =====================================================================
-   THEME
+   THEME (светло/тёмная) + DESIGN (скины оформления)
    ===================================================================== */
+const DESIGNS = [
+  {id:'classic', name:'Классик'},
+  {id:'clinic',  name:'Клиника'},
+  {id:'mono',    name:'Моно'},
+  {id:'focus',   name:'Фокус'},
+];
+const DESIGN_IDS = DESIGNS.map(d=>d.id);
+
 function initTheme(){
   let t=Local.get('theme');
   if(!t){ t = (TG && TG.colorScheme==='dark') ? 'dark' : 'light'; }
@@ -142,10 +150,32 @@ function initTheme(){
 }
 function applyTheme(t){
   document.body.dataset.theme=t; Local.set('theme',t);
-  const meta=$('meta[name=theme-color]'); if(meta) meta.content = t==='dark'?'#0d1119':'#eaeef6';
-  try{ if(TG){ TG.setHeaderColor && TG.setHeaderColor(t==='dark'?'#0d1119':'#eaeef6'); TG.setBackgroundColor && TG.setBackgroundColor(t==='dark'?'#0d1119':'#eaeef6'); } }catch(e){}
+  updateChromeColor();
 }
 function toggleTheme(){ applyTheme(document.body.dataset.theme==='dark'?'light':'dark'); haptic(); }
+
+function updateChromeColor(){
+  let bg = getComputedStyle(document.body).getPropertyValue('--bg').trim();
+  if(!/^#|rgb/.test(bg)) bg = document.body.dataset.theme==='dark' ? '#0d1119' : '#eaeef6';
+  const meta=$('meta[name=theme-color]'); if(meta) meta.content=bg;
+  try{ if(TG && TG.isVersionAtLeast && TG.isVersionAtLeast('6.1')){ TG.setHeaderColor(bg); TG.setBackgroundColor(bg); } }catch(e){}
+}
+
+function currentDesign(){ const d=Local.get('design'); return DESIGN_IDS.includes(d)?d:'classic'; }
+function initDesign(){ applyDesign(currentDesign(), false); }
+function applyDesign(name, save=true){
+  if(!DESIGN_IDS.includes(name)) name='classic';
+  document.body.dataset.design=name;
+  const link=document.getElementById('skin');
+  const href='assets/skins/'+name+'.css';
+  if(link && !link.getAttribute('href').endsWith(href)){
+    link.addEventListener('load', updateChromeColor, {once:true});
+    link.setAttribute('href', href);
+  }
+  if(save){ Local.set('design',name); Store.set('design',name); }
+  $$('#designGrid .dp-card').forEach(c=>c.classList.toggle('active', c.dataset.design===name));
+  updateChromeColor();
+}
 
 /* =====================================================================
    QUESTION CARD RENDERING (общий для практики и экзамена)
@@ -755,6 +785,11 @@ function wire(){
   $$('.tab').forEach(t=>t.addEventListener('click',()=>switchView(t.dataset.view)));
   $('#themeToggle').onclick=toggleTheme;
   $('#themeBtn2').onclick=toggleTheme;
+  $('#designGrid').addEventListener('click', e=>{
+    const c=e.target.closest('.dp-card'); if(!c) return;
+    applyDesign(c.dataset.design); haptic();
+    toast('Дизайн: '+c.querySelector('.dp-name').textContent);
+  });
   $('#prevBtn').onclick=()=>deckGo(-1);
   $('#nextBtn').onclick=()=>deckGo(1);
   $('#learnBtn').onclick=toggleLearn;
@@ -798,6 +833,7 @@ function wire(){
    ===================================================================== */
 async function boot(){
   initTheme();
+  initDesign();
   try{
     await loadData();
     await loadProgress();
@@ -810,6 +846,8 @@ async function boot(){
   wire();
   rebuildDeck(true);
   renderProfile();
+  // синхронизация выбранного дизайна между устройствами (CloudStorage)
+  Store.get('design').then(d=>{ if(d && DESIGN_IDS.includes(d) && d!==currentDesign()) applyDesign(d); });
   // hide splash
   const sp=$('#splash'); sp.classList.add('fade'); setTimeout(()=>sp.classList.add('hidden'),500);
   $('#app').classList.remove('hidden');

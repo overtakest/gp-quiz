@@ -3,10 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#f5f7fb">
+<meta name="theme-color" content="#eaeef6">
 <title>ГП Тесты</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="assets/styles.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&display=swap" rel="stylesheet">
+<script>
+  /* Загружаем сохранённый дизайн синхронно — без мигания при старте */
+  (function(){
+    var allowed={classic:1,clinic:1,mono:1,focus:1};
+    var d; try{ d=localStorage.getItem('gpq_design'); }catch(e){}
+    if(!allowed[d]) d='classic';
+    document.write('<link id="skin" rel="stylesheet" href="assets/skins/'+d+'.css">');
+  })();
+</script>
 </head>
 <body data-theme="light">
 
@@ -143,6 +154,28 @@
         <div class="stat"><div class="stat-num" id="stExams">0</div><div class="stat-lbl">Экзаменов</div></div>
         <div class="stat"><div class="stat-num" id="stBest">—</div><div class="stat-lbl">Лучший балл</div></div>
         <div class="stat"><div class="stat-num" id="stAcc">—</div><div class="stat-lbl">Точность</div></div>
+      </div>
+
+      <div class="design-picker">
+        <div class="dp-title">🎨 Дизайн оформления</div>
+        <div class="dp-grid" id="designGrid">
+          <button class="dp-card" data-design="classic">
+            <span class="dp-swatch"><i style="background:#4f7cff"></i><i style="background:#7a5cff"></i><i style="background:#eaeef6"></i></span>
+            <span class="dp-name">Классик</span><span class="dp-desc">индиго</span>
+          </button>
+          <button class="dp-card" data-design="clinic">
+            <span class="dp-swatch"><i style="background:#1f9d6b"></i><i style="background:#38b98a"></i><i style="background:#e8f0eb"></i></span>
+            <span class="dp-name">Клиника</span><span class="dp-desc">мята</span>
+          </button>
+          <button class="dp-card" data-design="mono">
+            <span class="dp-swatch"><i style="background:#1c1a15"></i><i style="background:#a9763f"></i><i style="background:#efece5"></i></span>
+            <span class="dp-name">Моно</span><span class="dp-desc">бумага · засечки</span>
+          </button>
+          <button class="dp-card" data-design="focus">
+            <span class="dp-swatch"><i style="background:#0d8f9c"></i><i style="background:#c9821f"></i><i style="background:#eaf1f1"></i></span>
+            <span class="dp-name">Фокус</span><span class="dp-desc">тил · янтарь</span>
+          </button>
+        </div>
       </div>
 
       <div class="profile-actions">
