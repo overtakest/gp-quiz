@@ -550,11 +550,29 @@ function renderExamHistory(){
 /* =====================================================================
    PROFILE
    ===================================================================== */
+function inTelegram(){ return !!(TG && ((TG.platform && TG.platform!=='unknown') || (TG.initData && TG.initData.length))); }
+function tgUser(){
+  let u = TG && TG.initDataUnsafe && TG.initDataUnsafe.user;
+  if(u && u.id) return u;
+  // запасной разбор строки initData (иногда initDataUnsafe пуст, а строка есть)
+  try{
+    if(TG && TG.initData){
+      const p=new URLSearchParams(TG.initData); const raw=p.get('user');
+      if(raw){ const parsed=JSON.parse(raw); if(parsed && parsed.id) return parsed; }
+    }
+  }catch(e){}
+  return null;
+}
 function renderProfile(){
-  const u = TG && TG.initDataUnsafe && TG.initDataUnsafe.user;
-  const name = u ? [u.first_name,u.last_name].filter(Boolean).join(' ') : 'Гость';
+  const u = tgUser();
+  const name = u ? [u.first_name,u.last_name].filter(Boolean).join(' ') : (inTelegram()?'Пользователь':'Гость');
   $('#profName').textContent=name||'Пользователь';
-  $('#profUser').textContent = u&&u.username ? '@'+u.username : (u?('ID: '+u.id):'Демо-режим (браузер)');
+  let sub;
+  if(u && u.username) sub='@'+u.username;
+  else if(u) sub='ID: '+u.id;
+  else if(inTelegram()) sub='Telegram · '+(TG.platform||'?')+' v'+(TG.version||'?'); // диагностика
+  else sub='Демо-режим (браузер)';
+  $('#profUser').textContent = sub;
   const av=$('#profAvatar');
   if(u&&u.photo_url){ av.style.backgroundImage=`url(${u.photo_url})`; av.textContent=''; }
   else { av.style.backgroundImage=''; av.textContent=(name||'?').trim().charAt(0).toUpperCase()||'?'; }
