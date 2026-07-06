@@ -140,12 +140,12 @@ function saveOverrides(){ Local.set('overrides', JSON.stringify(App.overrides));
    THEME (светло/тёмная) + DESIGN (скины оформления)
    ===================================================================== */
 const DESIGNS = [
-  {id:'classic', name:'Классик'},
   {id:'clinic',  name:'Клиника'},
   {id:'mono',    name:'Моно'},
   {id:'focus',   name:'Фокус'},
 ];
 const DESIGN_IDS = DESIGNS.map(d=>d.id);
+const DEFAULT_DESIGN = 'clinic';
 
 function initTheme(){
   let t=Local.get('theme');
@@ -165,10 +165,10 @@ function updateChromeColor(){
   try{ if(TG && TG.isVersionAtLeast && TG.isVersionAtLeast('6.1')){ TG.setHeaderColor(bg); TG.setBackgroundColor(bg); } }catch(e){}
 }
 
-function currentDesign(){ const d=Local.get('design'); return DESIGN_IDS.includes(d)?d:'classic'; }
-function initDesign(){ applyDesign(currentDesign(), false); }
+function currentDesign(){ const d=Local.get('design'); return DESIGN_IDS.includes(d)?d:DEFAULT_DESIGN; }
+function initDesign(){ const d=currentDesign(); if(Local.get('design')!==d) Local.set('design',d); applyDesign(d, false); }
 function applyDesign(name, save=true){
-  if(!DESIGN_IDS.includes(name)) name='classic';
+  if(!DESIGN_IDS.includes(name)) name=DEFAULT_DESIGN;
   document.body.dataset.design=name;
   const link=document.getElementById('skin');
   const href='assets/skins/'+name+'.css';

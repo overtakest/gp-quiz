@@ -12,9 +12,9 @@
 <script>
   /* Загружаем сохранённый дизайн синхронно — без мигания при старте */
   (function(){
-    var allowed={classic:1,clinic:1,mono:1,focus:1};
+    var allowed={clinic:1,mono:1,focus:1};
     var d; try{ d=localStorage.getItem('gpq_design'); }catch(e){}
-    if(!allowed[d]) d='classic';
+    if(!allowed[d]) d='clinic';
     document.write('<link id="skin" rel="stylesheet" href="assets/skins/'+d+'.css">');
   })();
 </script>
@@ -159,10 +159,6 @@
       <div class="design-picker">
         <div class="dp-title">🎨 Дизайн оформления</div>
         <div class="dp-grid" id="designGrid">
-          <button class="dp-card" data-design="classic">
-            <span class="dp-swatch"><i style="background:#4f7cff"></i><i style="background:#7a5cff"></i><i style="background:#eaeef6"></i></span>
-            <span class="dp-name">Классик</span><span class="dp-desc">индиго</span>
-          </button>
           <button class="dp-card" data-design="clinic">
             <span class="dp-swatch"><i style="background:#1f9d6b"></i><i style="background:#38b98a"></i><i style="background:#e8f0eb"></i></span>
             <span class="dp-name">Клиника</span><span class="dp-desc">мята</span>

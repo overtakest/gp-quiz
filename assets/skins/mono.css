@@ -450,4 +450,4 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .dp-swatch i{width:26px;height:20px;display:block}
 .dp-name{font-weight:700;font-size:15px}
 .dp-desc{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
-@media(min-width:760px){.dp-grid{grid-template-columns:repeat(4,1fr)}.dp-card:hover{border-color:var(--primary)}}
+@media(min-width:760px){.dp-grid{grid-template-columns:repeat(3,1fr)}.dp-card:hover{border-color:var(--primary)}}
